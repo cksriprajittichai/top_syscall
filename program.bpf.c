@@ -15,6 +15,7 @@
  */
 struct gadget_key {
 	__u32 process_id;
+	gadget_syscall syscall_raw;
 };
 
 struct gadget_value {
@@ -22,8 +23,8 @@ struct gadget_value {
 	__u64 calls;
 };
 
-/* Allow 10240 distinct processes between fetches, roughly 1 MiB plus map
- * overhead. Longer fetch intervals or busier hosts may need more entries;
+/* Allow 10240 distinct process/syscall pairs between fetches, roughly 1 MiB
+ * plus map overhead. Longer fetch intervals or busier hosts may need more entries;
  * a full map drops counts for new keys. Fetching drains entries without
  * silent LRU eviction. Preallocated memory scales with max_entries and
  * key/value size, even when the map is empty.
@@ -55,15 +56,16 @@ GADGET_MAPITER(calls, gadget_counts);
  * Update README requirements; if map fields change, run make metadata
  * and review gadget.yaml.
  */
-SEC("tracepoint/syscalls/sys_enter_chdir")
-int gadget_count_chdir(struct trace_event_raw_sys_enter *ctx)
+SEC("tracepoint/raw_syscalls/sys_enter")
+int gadget_count_syscall(struct trace_event_raw_sys_enter *ctx)
 {
 	if (gadget_should_discard_data_current())
 		return 0;
 
-	struct gadget_key key = {
-		.process_id = bpf_get_current_pid_tgid() >> 32,
-	};
+	struct gadget_key key = {};
+	__builtin_memset(&key, 0, sizeof(key));
+	key.process_id = bpf_get_current_pid_tgid() >> 32;
+	key.syscall_raw = ctx->id;
 	struct gadget_value *value = bpf_map_lookup_elem(&gadget_counts, &key);
 	if (value) {
 		/* Multiple CPUs can update this process; plain ++ loses
@@ -76,6 +78,9 @@ int gadget_count_chdir(struct trace_event_raw_sys_enter *ctx)
 	/* Reuse IG's process fields so standard container/pod enrichment works.
 	 */
 	gadget_process_populate(&initial.proc);
+	/* Calls from several threads share this counter; the inserting
+	 * thread's TID would misdescribe the aggregate. */
+	initial.proc.tid = 0;
 	initial.calls = 1;
 	long err = bpf_map_update_elem(&gadget_counts, &key, &initial,
 				       BPF_NOEXIST);
@@ -95,7 +100,7 @@ int gadget_count_chdir(struct trace_event_raw_sys_enter *ctx)
 	}
 	/* Keep failures visible (including a full map); inspect --trace-pipe.
 	 */
-	bpf_printk("gadget: chdir count dropped, map update error %ld", err);
+	bpf_printk("gadget: top_syscall count dropped, map update error %ld", err);
 	return 0;
 }
 
