@@ -100,7 +100,8 @@ int gadget_count_syscall(struct trace_event_raw_sys_enter *ctx)
 	}
 	/* Keep failures visible (including a full map); inspect --trace-pipe.
 	 */
-	bpf_printk("gadget: top_syscall count dropped, map update error %ld", err);
+	bpf_printk("gadget: top_syscall count dropped, map update error %ld",
+		   err);
 	return 0;
 }
 
