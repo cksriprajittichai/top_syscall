@@ -1,8 +1,8 @@
 # top_syscall
 
-Report `chdir` syscall counts per process with an Inspektor Gadget **map
-iterator**. The kernel aggregates attempts in a hash map instead of sending an
-event for every syscall.
+Report syscall counts per process and syscall with an Inspektor Gadget **map
+iterator**. The kernel aggregates attempts of all syscalls in a hash map instead
+of sending an event for every syscall.
 
 ## Requirements
 
@@ -22,7 +22,8 @@ PARAMS="--host --comm bash --map-fetch-interval 1s -o json" make run-local
 for i in 1 2 3; do cd /tmp; done
 ```
 
-Expect a `calls` record for bash with an aggregated count. Each fetch drains the
+Expect separate `calls` records for bash, one per syscall (such as `chdir` and
+`write`), each with an aggregated count. Each fetch drains the
 map: a later quiet interval does not replay the previous count. Counts describe
 syscall attempts, not successes, and are not lifetime process totals. Stop with
 Ctrl-C.
@@ -65,8 +66,8 @@ Atomic increments and insert-without-overwrite handle concurrent threads.
 Fetching and updates are concurrent, so interval boundaries are approximate;
 this is an observability example, not lossless accounting.
 
-The map permits 10240 distinct process keys between fetches, roughly 1 MiB plus
-map overhead. Longer fetch intervals or busier hosts may need a higher
+The map permits 10240 distinct process/syscall pairs between fetches, roughly
+1 MiB plus map overhead. Longer fetch intervals or busier hosts may need a higher
 `max_entries` in `program.bpf.c`. The map preallocates memory proportional to
 capacity and key/value size, even when empty. Entries are drained rather than
 silently LRU-evicted. If insertion fails, counts for new keys can be dropped;
